@@ -48,6 +48,7 @@ class EbayAPI:
         :return:
         """
         self.df = pd.read_excel(excel_filename, sheet_name=sheet, header=3, engine="calamine")
+        self.df = self.df.dropna(how='all')
         print(self.df)
 
 
