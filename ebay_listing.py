@@ -1,4 +1,7 @@
 import requests
+import pandas as pd
+from python_calamine.pandas import pandas_monkeypatch
+pandas_monkeypatch()
 
 
 class EbayAPI:
@@ -8,6 +11,7 @@ class EbayAPI:
         self.client_secret = client_secret
         self.dev_id = dev_id
         self.base_url = None
+        self.df = None
         self.session = requests.Session()
         if test:
             # sandbox url
@@ -36,6 +40,16 @@ class EbayAPI:
 
         print(response.json())
 
+    def read_excel(self, excel_filename: str, sheet: str = 'Listings'):
+        """
+        Read excel & convert to dataframe
+        :param excel_filename:
+        :param sheet:
+        :return:
+        """
+        self.df = pd.read_excel(excel_filename, sheet_name=sheet, header=3, engine="calamine")
+        print(self.df)
+
 
 e = EbayAPI(client_id='MBNirist-listings-SBX-64d901dbc-f48550d5',
             client_secret='SBX-4d901dbcf472-f97a-44a6-8b95-7fed',
@@ -43,4 +57,4 @@ e = EbayAPI(client_id='MBNirist-listings-SBX-64d901dbc-f48550d5',
             test=True
             )
 
-e.fetch_access_token()
+e.read_excel('uploud.xlsx')
