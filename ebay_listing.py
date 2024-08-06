@@ -1,5 +1,7 @@
 import os
 import logging
+import time
+
 import requests
 import pandas as pd
 from datetime import datetime
@@ -34,7 +36,6 @@ class EbayAPI:
         self.base_url = None
         self.df = None
         self.token = {}
-        self.session = requests.Session()
         self.test = test
         if test:
             # sandbox url
@@ -175,6 +176,39 @@ class EbayAPI:
         except Exception as e:
             logging.exception(e)
 
+    def _generate_inventory_payload(self, row):
+        return {}
+
+    def workflow(self):
+        logging.info("Started")
+
+        inventory_items = []
+
+        # iterate over dataframe
+        for index, row in self.df.iterrows():
+            try:
+                print(row)
+                payload = self._generate_inventory_payload(row)
+                inventory_items.append(payload)
+                # for each 20 items, send a listing request
+                if index % 19 == 0:
+                    self.bulk_create_or_replace_inventory_item(inventory_items)
+                    # empty the inventory_items
+                    inventory_items.clear()
+
+                # 2-minute pause after every 145 listings
+                if index % 144 == 0:
+                    print("Sleeping for 2 min...")
+                    time.sleep(120)
+            except Exception as e:
+                logging.exception(e)
+
+        # if items in inventory_items then list them
+        if inventory_items:
+            self.bulk_create_or_replace_inventory_item(inventory_items)
+            # empty the inventory_items
+            inventory_items.clear()
+
 
 items = [
         {
@@ -242,8 +276,9 @@ e = EbayAPI(client_id='MBNirist-listings-SBX-64d901dbc-f48550d5',
             test=True
             )
 
-#e.read_excel('uploud.xlsx')
-e.fetch_access_token()
+e.read_excel('uploud.xlsx')
+#e.fetch_access_token()
 #e.upload_image1('t.jpg')
-e.bulk_create_or_replace_inventory_item(items)
+#e.bulk_create_or_replace_inventory_item(items)
+e.workflow()
 
