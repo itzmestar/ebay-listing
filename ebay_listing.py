@@ -51,6 +51,7 @@ class EbayAPI:
         }
 
         payload = {
+            'scope': ["https://api.ebay.com/oauth/api_scope", "https://api.ebay.com/oauth/api_scope/sell.inventory", "https://api.ebay.com/oauth/api_scope/sell.marketing", "https://api.ebay.com/oauth/api_scope/sell.account", "https://api.ebay.com/oauth/api_scope/sell.fulfillment"],
             'grant_type': 'client_credentials'
         }
 
@@ -64,31 +65,6 @@ class EbayAPI:
         if response.ok:
             self.token = response.json()
         logging.info(self.token)
-
-    def bulk_create_or_replace_inventory_item(self, inventory_items: list):
-        """
-
-        :return:
-        """
-        uri = '/sell/inventory/v1/bulk_create_or_replace_inventory_item'
-
-        headers = {
-            'Content-Language': 'en-US',
-            'Content-Type': 'application/json'
-        }
-
-        payload = {
-            "requests": inventory_items
-        }
-
-        response = requests.post(
-            self.base_url + uri,
-            headers=headers,
-            auth=(self.client_id, self.client_secret),
-            data=payload
-        )
-
-        logging.info(response.json())
 
     def read_excel(self, excel_filename: str, sheet: str = 'Listings'):
         """
@@ -179,6 +155,86 @@ class EbayAPI:
                                )
         return response.content
 
+    def bulk_create_or_replace_inventory_item(self, inventory_items: list):
+        logging.info("started")
+        uri = '/sell/inventory/v1/bulk_create_or_replace_inventory_item'
+
+        payload = {
+            "requests": inventory_items
+        }
+        token = self.token.get('access_token')
+        headers = {
+            'Content-Language': 'en-US',
+            'Content-Type': 'application/json',
+            'Authorization': f'IAF {token}'
+        }
+
+        try:
+            response = requests.post(self.base_url + uri, headers=headers, json=payload)
+            logging.debug(response.json())
+        except Exception as e:
+            logging.exception(e)
+
+
+items = [
+        {
+            "sku": "Bsistuecf",
+            "locale": "en_US",
+            "product": {
+                "title": "Boston Terriers Collector Plate &quot;All Ears by Dan Hatala - The Danbury Mint",
+                "aspects": {
+                    "Country/Region of Manufacture": [
+                        "United States"
+                    ]
+                },
+                "description": "All Ears by Dan Hatala. A limited edition from the collection entitled 'Boston Terriers'. Presented by The Danbury Mint.",
+            },
+            "condition": "USED_EXCELLENT",
+            "conditionDescription": "Mint condition. Kept in styrofoam case. Never displayed.",
+            "availability": {
+                "shipToLocationAvailability": {
+                    "quantity": 2
+                }
+            }
+        },
+        {
+            "sku": "Jiiiaassh",
+            "locale": "en_US",
+            "product": {
+                "title": "JOE PAVELSKI 2015-16 BOBBLEHEAD NHL SAN JOSE SHARKS 25TH ANNIVERSARY",
+                "aspects": {
+                    "Team": [
+                        "San Jose Sharks"
+                    ],
+                    "Player": [
+                        "Joe Pavelski"
+                    ],
+                    "Pre & Post Season": [
+                        "Regular Season"
+                    ],
+                    "Product": [
+                        "Bobblehead"
+                    ],
+                    "Country/Region of Manufacture": [
+                        "China"
+                    ],
+                    "Brand": [
+                        "Success Promotions"
+                    ],
+                    "UPC": [
+                        "Does not apply"
+                    ]
+                },
+                "description": "Joe Pavelski bobble head from 2015-16 season, the 25th season of the San Jose Sharks. New in box.",
+            },
+            "condition": "NEW",
+            "availability": {
+                "shipToLocationAvailability": {
+                    "quantity": 1
+                }
+            }
+        }
+    ]
 
 e = EbayAPI(client_id='MBNirist-listings-SBX-64d901dbc-f48550d5',
             client_secret='SBX-4d901dbcf472-f97a-44a6-8b95-7fed',
@@ -188,4 +244,6 @@ e = EbayAPI(client_id='MBNirist-listings-SBX-64d901dbc-f48550d5',
 
 #e.read_excel('uploud.xlsx')
 e.fetch_access_token()
-e.upload_image1('t.jpg')
+#e.upload_image1('t.jpg')
+e.bulk_create_or_replace_inventory_item(items)
+
