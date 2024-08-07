@@ -1,7 +1,7 @@
 import os
 import logging
 import time
-
+import json
 import requests
 import pandas as pd
 from datetime import datetime
@@ -9,6 +9,9 @@ from python_calamine.pandas import pandas_monkeypatch
 import xml.etree.ElementTree as ET
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 from ebaysdk.trading import Connection as Trading
+from requests_oauthlib import OAuth2Session
+import urllib.parse as urlparse
+
 
 pandas_monkeypatch()
 
@@ -25,6 +28,7 @@ logging.basicConfig(
     format=log_format,
     level=logging.DEBUG
 )
+SCOPE = ["https://api.ebay.com/oauth/api_scope", "https://api.ebay.com/oauth/api_scope/sell.inventory", "https://api.ebay.com/oauth/api_scope/sell.marketing", "https://api.ebay.com/oauth/api_scope/sell.account", "https://api.ebay.com/oauth/api_scope/sell.fulfillment"]
 
 
 class EbayAPI:
@@ -35,16 +39,81 @@ class EbayAPI:
         self.dev_id = dev_id
         self.base_url = None
         self.df = None
-        self.token = {}
+        self.oauth_client = None
+        self.token_file = 'ebay_api_token.json'
+        self.token = None
         self.test = test
+        self.state = None
         if test:
             # sandbox url
             self.base_url = 'https://api.sandbox.ebay.com'
+            self.base_auth_url = 'https://auth.sandbox.ebay.com'
+            self.redirect_uri = "MB_Nirista-MBNirist-listin-zplsvkijr"
         else:
             # production url
             self.base_url = 'https://api.ebay.com'
+            self.base_auth_url = 'https://auth.ebay.com'
+            self.redirect_uri = ''
+        self.token_url = self.base_url + '/identity/v1/oauth2/token'
+        self.token_loader()
 
-    def fetch_access_token(self):
+    def token_saver(self, token):
+        self.token = token
+        with open(self.token_file, 'w') as f:
+            json.dump(token, fp=f)
+
+    def token_loader(self):
+        if not os.path.isfile(self.token_file):
+            self.authorize()
+            return
+        with open(self.token_file, 'r') as f:
+            self.token = json.load(f)
+
+        self.refresh_token()
+
+    def authorize(self):
+        AUTHORIZATION_BASE_URL = self.base_auth_url + '/oauth2/authorize'
+
+        extra = {
+            'client_id': self.client_id,
+            'client_secret': self.client_secret,
+            'response_type': 'code'
+        }
+        kwargs = {
+            'response_type': 'code'
+        }
+        self.oauth_client = OAuth2Session(
+            self.client_id,
+            scope=SCOPE,
+            redirect_uri=self.redirect_uri,
+            auto_refresh_kwargs=extra,
+            token_updater=self.token_saver,
+        )
+        authorization_url, self.state = self.oauth_client.authorization_url(AUTHORIZATION_BASE_URL)
+        print("Please go here and authorize: {}".format(authorization_url))
+
+        redirect_response = input("Copy & Paste the full redirect URL here then press 'Enter':")
+
+        query = urlparse.urlparse(redirect_response).query
+        params = dict(urlparse.parse_qsl(query))
+
+        body = {
+            'grant_type': 'authorization_code',
+            'code': params.get('code'),
+            'redirect_uri': self.redirect_uri
+        }
+        # Fetch the access token
+        self.fetch_access_token(body)
+
+        logging.debug(self.token)
+        self.token_saver(self.token)
+
+    def fetch_access_token(self, body: dict):
+        """
+        https://developer.ebay.com/api-docs/static/oauth-auth-code-grant-request.html
+        :param body:
+        :return:
+        """
         uri = '/identity/v1/oauth2/token'
 
         headers = {
@@ -52,9 +121,11 @@ class EbayAPI:
         }
 
         payload = {
-            'scope': ["https://api.ebay.com/oauth/api_scope", "https://api.ebay.com/oauth/api_scope/sell.inventory", "https://api.ebay.com/oauth/api_scope/sell.marketing", "https://api.ebay.com/oauth/api_scope/sell.account", "https://api.ebay.com/oauth/api_scope/sell.fulfillment"],
+            'scope': SCOPE,
             'grant_type': 'client_credentials'
         }
+        if body:
+            payload = body
 
         response = requests.post(
             self.base_url + uri,
@@ -66,6 +137,27 @@ class EbayAPI:
         if response.ok:
             self.token = response.json()
         logging.info(self.token)
+
+    def refresh_token(self):
+        """
+        https://developer.ebay.com/api-docs/static/oauth-refresh-token-request.html
+        :return:
+        """
+
+        if self.token is None:
+            self.token_loader()
+        logging.debug("Refreshing token...")
+        refresh_token = self.token.get('refresh_token')
+        payload = {
+            'grant_type': 'refresh_token',
+            'refresh_token': refresh_token,
+            'scope': SCOPE
+        }
+
+        self.fetch_access_token(body=payload)
+
+        logging.debug(self.token)
+        self.token_saver(self.token)
 
     def read_excel(self, excel_filename: str, sheet: str = 'Listings'):
         """
@@ -154,6 +246,7 @@ class EbayAPI:
                                {"PictureSet": "Supersize"},
                                files=files
                                )
+        logging.debug(response.text)
         return response.content
 
     def bulk_create_or_replace_inventory_item(self, inventory_items: list):
@@ -276,9 +369,9 @@ e = EbayAPI(client_id='MBNirist-listings-SBX-64d901dbc-f48550d5',
             test=True
             )
 
-e.read_excel('uploud.xlsx')
+#e.read_excel('uploud.xlsx')
 #e.fetch_access_token()
-#e.upload_image1('t.jpg')
-#e.bulk_create_or_replace_inventory_item(items)
-e.workflow()
+print(e.upload_image1('t.jpg'))
+e.bulk_create_or_replace_inventory_item(items)
+#e.workflow()
 
