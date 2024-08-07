@@ -11,6 +11,7 @@ from requests_toolbelt.multipart.encoder import MultipartEncoder
 from ebaysdk.trading import Connection as Trading
 from requests_oauthlib import OAuth2Session
 import urllib.parse as urlparse
+from pprint import pformat
 
 
 pandas_monkeypatch()
@@ -28,7 +29,119 @@ logging.basicConfig(
     format=log_format,
     level=logging.DEBUG
 )
-SCOPE = ["https://api.ebay.com/oauth/api_scope", "https://api.ebay.com/oauth/api_scope/sell.inventory", "https://api.ebay.com/oauth/api_scope/sell.marketing", "https://api.ebay.com/oauth/api_scope/sell.account", "https://api.ebay.com/oauth/api_scope/sell.fulfillment"]
+SCOPE = ["https://api.ebay.com/oauth/api_scope",
+         "https://api.ebay.com/oauth/api_scope/sell.inventory",
+         "https://api.ebay.com/oauth/api_scope/sell.marketing",
+         "https://api.ebay.com/oauth/api_scope/sell.account",
+         "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
+         #"https://api.ebay.com/oauth/api_scope/metadata.insights"
+         ]
+Condition_ID_MAPPING = {
+    '1000': 'NEW',
+    '1500': 'NEW_OTHER',
+    '1750': 'NEW_WITH_DEFECTS',
+    '2000': 'CERTIFIED_REFURBISHED',
+    '2010': 'EXCELLENT_REFURBISHED',
+    '2020': 'VERY_GOOD_REFURBISHED',
+    '2030': 'GOOD_REFURBISHED',
+    '2500': 'SELLER_REFURBISHED',
+    '2750': 'LIKE_NEW',
+    '3000': 'USED_EXCELLENT',
+    '4000': 'USED_VERY_GOOD',
+    '5000': 'USED_GOOD',
+    '6000': 'USED_ACCEPTABLE',
+    '7000': 'FOR_PARTS_OR_NOT_WORKING',
+}
+EXCEL_COL_MAPPING = {
+    'action': '*Action(SiteID=UK|Country=LT|Currency=GBP|Version=1193)',
+    'sku': 'Custom label (SKU)',
+    '': 'Category ID',
+    '': 'Category name',
+    'product.title': 'Title',
+    '': 'Relationship',
+    '': 'Relationship details',
+    'product.epid': 'P:EPID',
+    '': 'Start price',
+    'availability.shipToLocationAvailability.quantity': 'Quantity',
+    'condition': 'Condition ID',
+    'conditionDescription': 'Description',
+    '': 'Format',
+    '': 'Best Offer Enabled',
+    '': 'Best Offer Auto Accept Price',
+    '': 'Minimum Best Offer Price',
+    '': 'VAT%',
+    '': 'Immediate pay required',
+    '': 'Location',
+    '': 'Shipping service 1 option',
+    '': 'Shipping service 1 cost',
+    '': 'Shipping service 1 priority',
+    '': 'Shipping service 2 option',
+    '': 'Shipping service 2 cost',
+    '': 'Shipping service 2 priority',
+    '': 'Max dispatch time',
+    '': 'Returns accepted option',
+    '': 'Returns within option',
+    '': 'Refund option',
+    '': 'Return shipping cost paid by',
+    '': 'Shipping profile name',
+    '': 'Return profile name',
+    '': 'Payment profile name',
+    '': 'ProductCompliancePolicyID',
+    'product.brand': 'C:Brand',
+    'product.aspects.Type': 'C:Type',
+    'product.aspects.Size': 'C:Size',
+    'product.aspects.Colour': 'C:Colour',
+    'product.aspects.Style': 'C:Style',
+    'product.aspects.Department': 'C:Department',
+    'product.aspects.Inside Leg': 'C:Inside Leg',
+    'product.aspects.Waist Size': 'C:Waist Size',
+    'product.aspects.Fit': 'C:Fit',
+    'product.aspects.Fabric Type': 'C:Fabric Type',
+    'product.aspects.Features': 'C:Features',
+    'product.aspects.Model': 'C:Model',
+    'product.aspects.Fabric Wash': 'C:Fabric Wash',
+    'product.aspects.Theme': 'C:Theme',
+    'product.aspects.Size Type': 'C:Size Type',
+    'product.aspects.Closure': 'C:Closure',
+    'product.aspects.Material': 'C:Material',
+    'product.aspects.Vintage': 'C:Vintage',
+    '': 'Product Safety Pictograms',
+    '': 'Product Safety Statements',
+    '': 'Product Safety Component',
+    '': 'Manufacturer Name',
+    '': 'Manufacturer AddressLine1',
+    '': 'Manufacturer AddressLine2',
+    '': 'Manufacturer City',
+    '': 'Manufacturer Country',
+    '': 'Manufacturer PostalCode',
+    '': 'Manufacturer StateOrProvince',
+    '': 'Manufacturer Phone',
+    '': 'Manufacturer Email',
+    '': 'Responsible Person 1',
+    '': 'Responsible Person 1 Type',
+    '': 'Responsible Person 1 AddressLine1',
+    '': 'Responsible Person 1 AddressLine2',
+    '': 'Responsible Person 1 City',
+    '': 'Responsible Person 1 Country',
+    '': 'Responsible Person 1 PostalCode',
+    '': 'Responsible Person 1 StateOrProvince',
+    '': 'Responsible Person 1 Phone',
+    '': 'Responsible Person 1 Email',
+    'product.aspects.Product Line': 'C:Product Line',
+    'product.aspects.Accents': 'C:Accents',
+    'product.aspects.Country/Region of Manufacture': 'C:Country/Region of Manufacture',
+    'product.aspects.Rise': 'C:Rise',
+    'product.aspects.Pattern': 'C:Pattern',
+    'product.aspects.Handmade': 'C:Handmade',
+    'product.aspects.Personalise': 'C:Personalise',
+    'product.aspects.Garment Care': 'C:Garment Care',
+    'product.mpn': 'C:MPN',
+    'product.aspects.Personalisation Instructions': 'C:Personalisation Instructions',
+    'product.aspects.Pocket Type': 'C:Pocket Type',
+    'product.aspects.Season': 'C:Season',
+    'product.aspects.Unit Quantity': 'C:Unit Quantity',
+    'product.aspects.Unit Type': 'C:Unit Type',
+}
 
 
 class EbayAPI:
@@ -40,8 +153,8 @@ class EbayAPI:
         self.base_url = None
         self.df = None
         self.oauth_client = None
-        self.token_file = 'ebay_api_token.json'
         self.token = None
+        self.token_client_credentials = None
         self.test = test
         self.state = None
         if test:
@@ -49,13 +162,15 @@ class EbayAPI:
             self.base_url = 'https://api.sandbox.ebay.com'
             self.base_auth_url = 'https://auth.sandbox.ebay.com'
             self.redirect_uri = "MB_Nirista-MBNirist-listin-zplsvkijr"
+            self.token_file = 'ebay_sandbox_api_token.json'
         else:
             # production url
             self.base_url = 'https://api.ebay.com'
             self.base_auth_url = 'https://auth.ebay.com'
             self.redirect_uri = ''
+            self.token_file = 'ebay_api_token.json'
         self.token_url = self.base_url + '/identity/v1/oauth2/token'
-        self.token_loader()
+        #self.token_loader()
 
     def token_saver(self, token):
         self.token = token
@@ -108,7 +223,7 @@ class EbayAPI:
         logging.debug(self.token)
         self.token_saver(self.token)
 
-    def fetch_access_token(self, body: dict):
+    def fetch_access_token(self, body: dict = None):
         """
         https://developer.ebay.com/api-docs/static/oauth-auth-code-grant-request.html
         :param body:
@@ -135,8 +250,12 @@ class EbayAPI:
         )
 
         if response.ok:
-            self.token = response.json()
-        logging.info(self.token)
+            if payload.get('grant_type') == 'client_credentials':
+                self.token_client_credentials = response.json()
+                logging.info(self.token_client_credentials)
+            else:
+                self.token = response.json()
+                logging.info(self.token)
 
     def refresh_token(self):
         """
@@ -158,6 +277,34 @@ class EbayAPI:
 
         logging.debug(self.token)
         self.token_saver(self.token)
+
+    def fetch_item_aspects(self):
+        """
+        https://developer.ebay.com/api-docs/commerce/taxonomy/resources/category_tree/methods/fetchItemAspects
+        :return:
+        """
+        url = self.base_url + '/commerce/taxonomy/v1/get_default_category_tree_id?marketplace_id=EBAY_GB'
+        self.fetch_access_token(body=None)
+
+        token = self.token_client_credentials.get('access_token')
+        headers = {
+            'Content-Language': 'en-US',
+            'Content-Type': 'application/json',
+            'Authorization': f'IAF {token}'
+        }
+
+        response = requests.get(url, headers=headers)
+        logging.debug(response.content)
+        if response.ok:
+            data = response.json()
+            logging.debug(data)
+            category_tree_id = data.get('categoryTreeId')
+
+            url = self.base_url + f'/commerce/taxonomy/v1/category_tree/{category_tree_id}/fetch_item_aspects'
+
+            response = requests.get(url, headers=headers)
+            data = response.json()
+            logging.debug(data)
 
     def read_excel(self, excel_filename: str, sheet: str = 'Listings'):
         """
@@ -269,8 +416,30 @@ class EbayAPI:
         except Exception as e:
             logging.exception(e)
 
+    @staticmethod
+    def _get_condition_enum(condition_id: str):
+        for key, val in Condition_ID_MAPPING:
+            if key in condition_id:
+                return val
+        return None
+
     def _generate_inventory_payload(self, row):
-        return {}
+        payload = {
+            "locale": "en_US",
+            'sku': row.get(EXCEL_COL_MAPPING['sku']),
+            'conditionDescription': row.get(EXCEL_COL_MAPPING['conditionDescription']),
+            'availability': {
+                'shipToLocationAvailability': {
+                    'quantity': row.get(EXCEL_COL_MAPPING['availability.shipToLocationAvailability.quantity'])
+                }
+            }
+        }
+        condition_enum = self._get_condition_enum(row.get(EXCEL_COL_MAPPING['condition']))
+        if condition_enum:
+            payload['condition'] = condition_enum
+
+        logging.debug(pformat(payload))
+        return payload
 
     def workflow(self):
         logging.info("Started")
@@ -292,9 +461,10 @@ class EbayAPI:
                 # 2-minute pause after every 145 listings
                 if index % 144 == 0:
                     print("Sleeping for 2 min...")
+                    logging.info("Sleeping for 2 min...")
                     time.sleep(120)
-            except Exception as e:
-                logging.exception(e)
+            except Exception as ex:
+                logging.exception(ex)
 
         # if items in inventory_items then list them
         if inventory_items:
@@ -371,7 +541,7 @@ e = EbayAPI(client_id='MBNirist-listings-SBX-64d901dbc-f48550d5',
 
 #e.read_excel('uploud.xlsx')
 #e.fetch_access_token()
-print(e.upload_image1('t.jpg'))
-e.bulk_create_or_replace_inventory_item(items)
+#print(e.upload_image1('t.jpg'))
+#e.bulk_create_or_replace_inventory_item(items)
 #e.workflow()
-
+e.fetch_item_aspects()
