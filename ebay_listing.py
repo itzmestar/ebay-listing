@@ -617,11 +617,18 @@ class EbayAPI:
 
         categoryId = row.get(EXCEL_COL_MAPPING['categoryId'])
         if categoryId:
+            try:
+                categoryId = str(int(categoryId))
+            except:
+                pass
             payload['categoryId'] = categoryId
 
         format = row.get(EXCEL_COL_MAPPING['format'])
         if format:
-            payload['format'] = format
+            if 'fixed' in format.lower():
+                payload['format'] = 'FIXED_PRICE'
+            else:
+                payload['format'] = 'AUCTION'
 
         listingDuration = row.get(EXCEL_COL_MAPPING['listingDuration'])
         if listingDuration:
@@ -645,7 +652,7 @@ class EbayAPI:
                 payload['pricingSummary'] = {
                     'auctionStartPrice': {
                         'currency': 'GBP',
-                        'value': auctionStartPrice
+                        'value': str(auctionStartPrice)
                     }
                 }
             except:
@@ -780,6 +787,7 @@ class EbayAPI:
             try:
                 # print(row)
                 payload = self._generate_inventory_payload(row)
+                payload = None
                 if payload:
                     inventory_items.append(payload)
                 offer_payload = self._generate_offer_payload(row)
@@ -814,80 +822,6 @@ class EbayAPI:
     def workflow(self, excel_file):
         self.read_excel(excel_file)
         self.list_items()
-
-
-items = [
-        {
-            "sku": "Bsistuecf",
-            "locale": "en_US",
-            "product": {
-                "title": "Boston Terriers Collector Plate &quot;All Ears by Dan Hatala - The Danbury Mint",
-                "aspects": {
-                    "Country/Region of Manufacture": [
-                        "United States"
-                    ]
-                },
-                "description": "All Ears by Dan Hatala. A limited edition from the collection entitled 'Boston Terriers'. Presented by The Danbury Mint.",
-            },
-            "condition": "USED_EXCELLENT",
-            "conditionDescription": "Mint condition. Kept in styrofoam case. Never displayed.",
-            "availability": {
-                "shipToLocationAvailability": {
-                    "quantity": 2
-                }
-            }
-        },
-        {
-            "sku": "Jiiiaassh",
-            "locale": "en_US",
-            "product": {
-                "title": "JOE PAVELSKI 2015-16 BOBBLEHEAD NHL SAN JOSE SHARKS 25TH ANNIVERSARY",
-                "aspects": {
-                    "Team": [
-                        "San Jose Sharks"
-                    ],
-                    "Player": [
-                        "Joe Pavelski"
-                    ],
-                    "Pre & Post Season": [
-                        "Regular Season"
-                    ],
-                    "Product": [
-                        "Bobblehead"
-                    ],
-                    "Country/Region of Manufacture": [
-                        "China"
-                    ],
-                    "Brand": [
-                        "Success Promotions"
-                    ],
-                    "UPC": [
-                        "Does not apply"
-                    ]
-                },
-                "description": "Joe Pavelski bobble head from 2015-16 season, the 25th season of the San Jose Sharks. New in box.",
-            },
-            "condition": "NEW",
-            "availability": {
-                "shipToLocationAvailability": {
-                    "quantity": 1
-                }
-            }
-        }
-    ]
-
-'''e = EbayAPI(client_id='MBNirist-listings-SBX-64d901dbc-f48550d5',
-            client_secret='SBX-4d901dbcf472-f97a-44a6-8b95-7fed',
-            dev_id='813cd451-631c-46e7-8ab5-94bf72be1305',
-            test=True
-            )'''
-
-#e.read_excel('uploud.xlsx')
-#e.fetch_access_token()
-#print(e.upload_image1('t.jpg'))
-#e.bulk_create_or_replace_inventory_item(items)
-#e.workflow()
-#e.fetch_item_aspects()
 
 
 def load_config(config_file):
