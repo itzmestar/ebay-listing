@@ -12,6 +12,8 @@ from ebaysdk.trading import Connection as Trading
 from requests_oauthlib import OAuth2Session
 import urllib.parse as urlparse
 from pprint import pformat
+import argparse
+import configparser
 
 
 pandas_monkeypatch()
@@ -29,6 +31,8 @@ logging.basicConfig(
     format=log_format,
     level=logging.DEBUG
 )
+CONFIG = None
+environment = 'sandbox'
 SCOPE = ["https://api.ebay.com/oauth/api_scope",
          "https://api.ebay.com/oauth/api_scope/sell.inventory",
          "https://api.ebay.com/oauth/api_scope/sell.marketing",
@@ -170,9 +174,10 @@ class EbayAPI:
             self.redirect_uri = ''
             self.token_file = 'ebay_api_token.json'
         self.token_url = self.base_url + '/identity/v1/oauth2/token'
-        #self.token_loader()
+        self.token_loader()
 
     def token_saver(self, token):
+        logging.debug("Saving token")
         self.token = token
         with open(self.token_file, 'w') as f:
             json.dump(token, fp=f)
@@ -181,6 +186,7 @@ class EbayAPI:
         if not os.path.isfile(self.token_file):
             self.authorize()
             return
+        logging.debug("Loading token")
         with open(self.token_file, 'r') as f:
             self.token = json.load(f)
 
@@ -220,7 +226,6 @@ class EbayAPI:
         # Fetch the access token
         self.fetch_access_token(body)
 
-        logging.debug(self.token)
         self.token_saver(self.token)
 
     def fetch_access_token(self, body: dict = None):
@@ -262,9 +267,6 @@ class EbayAPI:
         https://developer.ebay.com/api-docs/static/oauth-refresh-token-request.html
         :return:
         """
-
-        if self.token is None:
-            self.token_loader()
         logging.debug("Refreshing token...")
         refresh_token = self.token.get('refresh_token')
         payload = {
@@ -274,9 +276,8 @@ class EbayAPI:
         }
 
         self.fetch_access_token(body=payload)
-
-        logging.debug(self.token)
-        self.token_saver(self.token)
+        if 'refresh_token' in self.token:
+            self.token_saver(self.token)
 
     def fetch_item_aspects(self):
         """
@@ -347,6 +348,11 @@ class EbayAPI:
             return None
 
     def upload_image1(self, filename: str):
+        """
+        https://developer.ebay.com/devzone/xml/docs/reference/ebay/uploadsitehostedpictures.html
+        :param filename:
+        :return:
+        """
         logging.info("started")
         uri = '/ws/api.dll'
         headers = {
@@ -371,13 +377,20 @@ class EbayAPI:
                 headers['Content-Type'] = multipart_data.content_type
                 response = requests.post(self.base_url + uri, data=multipart_data, headers=headers)
                 logging.info(response.text)
+                return response.text
             '''files = [('file', (os.path.basename(filename), open(filename, 'rb'), 'image/jpg'))]
             response = requests.post(self.base_url + uri, data=request_xml, headers=headers, files=files)
             logging.info(response.content)'''
         except Exception as ex:
             logging.exception(ex)
+            return None
 
     def upload_image(self, filename):
+        """
+        https://developer.ebay.com/devzone/xml/docs/reference/ebay/uploadsitehostedpictures.html
+        :param filename:
+        :return:
+        """
         token = self.token.get('access_token')
         if self.test:
             domain = 'api.sandbox.ebay.com'
@@ -394,9 +407,15 @@ class EbayAPI:
                                files=files
                                )
         logging.debug(response.text)
-        return response.content
+        return response
 
     def bulk_create_or_replace_inventory_item(self, inventory_items: list):
+        """
+        https://developer.ebay.com/api-docs/sell/inventory/resources/inventory_item/methods/bulkCreateOrReplaceInventoryItem#h3-request-headers
+
+        :param inventory_items:
+        :return:
+        """
         logging.info("started")
         uri = '/sell/inventory/v1/bulk_create_or_replace_inventory_item'
 
@@ -423,25 +442,87 @@ class EbayAPI:
                 return val
         return None
 
+    def _get_image_full_url(self, sku: str):
+        """
+        Upload image & return full url of image
+        :param sku:
+        :return:
+        """
+        image_name_path = sku + '.jpg'
+
+        # upload image
+        response = self.upload_image1(image_name_path)
+
+        if not response:
+            return None
+
+        # Parse the XML data
+        tree = ET.ElementTree(ET.fromstring(response))
+        root = tree.getroot()
+
+        # Define the namespace
+        namespace = {'ns': 'urn:ebay:apis:eBLBaseComponents'}
+
+        # Find the FullURL element
+        full_url = root.find('.//ns:FullURL', namespace)
+        # Print the FullURL value
+        if full_url is not None:
+            logging.debug(full_url.text)
+            return full_url.text
+        else:
+            logging.error("FullURL element not found.")
+            return None
+
     def _generate_inventory_payload(self, row):
+        sku = row.get(EXCEL_COL_MAPPING['sku'])
+        if not sku:
+            return None
         payload = {
             "locale": "en_US",
-            'sku': row.get(EXCEL_COL_MAPPING['sku']),
+            'sku': sku,
             'conditionDescription': row.get(EXCEL_COL_MAPPING['conditionDescription']),
-            'availability': {
-                'shipToLocationAvailability': {
-                    'quantity': row.get(EXCEL_COL_MAPPING['availability.shipToLocationAvailability.quantity'])
-                }
-            }
         }
+        quantity = row.get(EXCEL_COL_MAPPING['availability.shipToLocationAvailability.quantity'])
+        if quantity:
+            try:
+                quantity = int(quantity)
+                availability = {
+                    'shipToLocationAvailability': {
+                        'quantity': quantity
+                    }
+                }
+                payload['availability'] = availability
+            except:
+                pass
         condition_enum = self._get_condition_enum(row.get(EXCEL_COL_MAPPING['condition']))
         if condition_enum:
             payload['condition'] = condition_enum
 
+        product = {}
+        title = row.get(EXCEL_COL_MAPPING['product.title'])
+        if title:
+            product['title'] = title
+        epid = row.get(EXCEL_COL_MAPPING['product.epid'])
+        if epid:
+            product['epid'] = epid
+        brand = row.get(EXCEL_COL_MAPPING['product.brand'])
+        if brand:
+            product['brand'] = brand
+        mpn = row.get(EXCEL_COL_MAPPING['product.mpn'])
+        if mpn:
+            product['mpn'] = mpn
+
+        image_url = self._get_image_full_url(sku)
+        if image_url:
+            imageUrls = [image_url]
+            product['imageUrls'] = imageUrls
+
+        payload['product'] = product
+
         logging.debug(pformat(payload))
         return payload
 
-    def workflow(self):
+    def list_items(self):
         logging.info("Started")
 
         inventory_items = []
@@ -449,8 +530,10 @@ class EbayAPI:
         # iterate over dataframe
         for index, row in self.df.iterrows():
             try:
-                print(row)
+                # print(row)
                 payload = self._generate_inventory_payload(row)
+                if not payload:
+                    continue
                 inventory_items.append(payload)
                 # for each 20 items, send a listing request
                 if index % 19 == 0:
@@ -471,6 +554,10 @@ class EbayAPI:
             self.bulk_create_or_replace_inventory_item(inventory_items)
             # empty the inventory_items
             inventory_items.clear()
+
+    def workflow(self, excel_file):
+        self.read_excel(excel_file)
+        self.list_items()
 
 
 items = [
@@ -533,15 +620,60 @@ items = [
         }
     ]
 
-e = EbayAPI(client_id='MBNirist-listings-SBX-64d901dbc-f48550d5',
+'''e = EbayAPI(client_id='MBNirist-listings-SBX-64d901dbc-f48550d5',
             client_secret='SBX-4d901dbcf472-f97a-44a6-8b95-7fed',
             dev_id='813cd451-631c-46e7-8ab5-94bf72be1305',
             test=True
-            )
+            )'''
 
 #e.read_excel('uploud.xlsx')
 #e.fetch_access_token()
 #print(e.upload_image1('t.jpg'))
 #e.bulk_create_or_replace_inventory_item(items)
 #e.workflow()
-e.fetch_item_aspects()
+#e.fetch_item_aspects()
+
+
+def load_config(config_file):
+    config = configparser.RawConfigParser()
+    config.optionxform = lambda option: option
+    config.read(config_file)
+    return config
+
+
+def main(args):
+    global CONFIG, environment
+
+    # check config file
+    config_file = args.ini
+
+    CONFIG = load_config(config_file)
+
+    if args.test:
+        logging.info("Running in sandbox environment...")
+        environment = 'sandbox'
+
+    else:
+        logging.info("Running in production environment...")
+        environment = 'production'
+
+    ebay = EbayAPI(
+        client_id=CONFIG[environment]['client_id'],
+        client_secret=CONFIG[environment]['client_secret'],
+        dev_id=CONFIG[environment]['dev_id'],
+        test=args.test
+    )
+
+
+if __name__ == '__main__':
+    """
+        Execution starts here.
+    """
+
+    parser = argparse.ArgumentParser(description='Ebay Listing Script')
+    parser.add_argument('-i', '--ini', help='config filename', type=str, required=False, default='ebay_listing.ini')
+    parser.add_argument('-t', '--test', action='store_true', help="To run in sandbox environment, provide this flag")
+
+    args = parser.parse_args()
+
+    main(args)
