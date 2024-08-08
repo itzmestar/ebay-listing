@@ -4,7 +4,7 @@ import time
 import json
 import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from python_calamine.pandas import pandas_monkeypatch
 import xml.etree.ElementTree as ET
 from requests_toolbelt.multipart.encoder import MultipartEncoder
@@ -59,21 +59,22 @@ Condition_ID_MAPPING = {
 EXCEL_COL_MAPPING = {
     'action': '*Action(SiteID=UK|Country=LT|Currency=GBP|Version=1193)',
     'sku': 'Custom label (SKU)',
-    '': 'Category ID',
-    '': 'Category name',
+    'categoryId': 'Category ID',
+    'storeCategoryNames': 'Category name',
     'product.title': 'Title',
     '': 'Relationship',
     '': 'Relationship details',
     'product.epid': 'P:EPID',
-    '': 'Start price',
-    'availability.shipToLocationAvailability.quantity': 'Quantity',
+    'pricingSummary.auctionStartPrice': 'Start price',
+    'availableQuantity': 'Quantity',
     'condition': 'Condition ID',
     'conditionDescription': 'Description',
-    '': 'Format',
-    '': 'Best Offer Enabled',
+    'format': 'Format',
+    'listingDuration': 'Duration',
+    'listingPolicies.bestOfferTerms.bestOfferEnabled': 'Best Offer Enabled',
     '': 'Best Offer Auto Accept Price',
     '': 'Minimum Best Offer Price',
-    '': 'VAT%',
+    'tax.vatPercentage': 'VAT%',
     '': 'Immediate pay required',
     '': 'Location',
     '': 'Shipping service 1 option',
@@ -112,25 +113,25 @@ EXCEL_COL_MAPPING = {
     '': 'Product Safety Pictograms',
     '': 'Product Safety Statements',
     '': 'Product Safety Component',
-    '': 'Manufacturer Name',
-    '': 'Manufacturer AddressLine1',
-    '': 'Manufacturer AddressLine2',
-    '': 'Manufacturer City',
-    '': 'Manufacturer Country',
-    '': 'Manufacturer PostalCode',
-    '': 'Manufacturer StateOrProvince',
-    '': 'Manufacturer Phone',
-    '': 'Manufacturer Email',
-    '': 'Responsible Person 1',
-    '': 'Responsible Person 1 Type',
-    '': 'Responsible Person 1 AddressLine1',
-    '': 'Responsible Person 1 AddressLine2',
-    '': 'Responsible Person 1 City',
-    '': 'Responsible Person 1 Country',
-    '': 'Responsible Person 1 PostalCode',
-    '': 'Responsible Person 1 StateOrProvince',
-    '': 'Responsible Person 1 Phone',
-    '': 'Responsible Person 1 Email',
+    'regulatory.manufacturer.companyName': 'Manufacturer Name',
+    'regulatory.manufacturer.addressLine1': 'Manufacturer AddressLine1',
+    'regulatory.manufacturer.addressLine2': 'Manufacturer AddressLine2',
+    'regulatory.manufacturer.city': 'Manufacturer City',
+    'regulatory.manufacturer.country': 'Manufacturer Country',
+    'regulatory.manufacturer.postalCode': 'Manufacturer PostalCode',
+    'regulatory.manufacturer.stateOrProvince': 'Manufacturer StateOrProvince',
+    'regulatory.manufacturer.phone': 'Manufacturer Phone',
+    'regulatory.manufacturer.email': 'Manufacturer Email',
+    'regulatory.responsiblePersons.companyName': 'Responsible Person 1',
+    'regulatory.responsiblePersons.types': 'Responsible Person 1 Type',
+    'regulatory.responsiblePersons.addressLine1': 'Responsible Person 1 AddressLine1',
+    'regulatory.responsiblePersons.addressLine2': 'Responsible Person 1 AddressLine2',
+    'regulatory.responsiblePersons.city': 'Responsible Person 1 City',
+    'regulatory.responsiblePersons.country': 'Responsible Person 1 Country',
+    'regulatory.responsiblePersons.postalCode': 'Responsible Person 1 PostalCode',
+    'regulatory.responsiblePersons.stateOrProvince': 'Responsible Person 1 StateOrProvince',
+    'regulatory.responsiblePersons.phone': 'Responsible Person 1 Phone',
+    'regulatory.responsiblePersons.email': 'Responsible Person 1 Email',
     #'product.aspects.Product Line': 'C:Product Line',
     #'product.aspects.Accents': 'C:Accents',
     #'product.aspects.Country/Region of Manufacture': 'C:Country/Region of Manufacture',
@@ -175,7 +176,7 @@ class EbayAPI:
             self.redirect_uri = ''
             self.token_file = 'ebay_api_token.json'
         self.token_url = self.base_url + '/identity/v1/oauth2/token'
-        #self.token_loader()
+        self.token_loader()
 
     def token_saver(self, token):
         logging.debug("Saving token")
@@ -437,6 +438,31 @@ class EbayAPI:
         except Exception as e:
             logging.exception(e)
 
+    def bulk_create_offer(self, offer_items: list):
+        """
+        https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/bulkCreateOffer
+        :param offer_items:
+        :return:
+        """
+        logging.info("started")
+        uri = '/sell/inventory/v1/bulk_create_offer'
+
+        payload = {
+            "requests": offer_items
+        }
+        token = self.token.get('access_token')
+        headers = {
+            'Content-Language': 'en-US',
+            'Content-Type': 'application/json',
+            'Authorization': f'IAF {token}'
+        }
+
+        try:
+            response = requests.post(self.base_url + uri, headers=headers, json=payload)
+            logging.debug(response.json())
+        except Exception as e:
+            logging.exception(e)
+
     @staticmethod
     def _get_condition_enum(condition_id: str):
         for key, val in Condition_ID_MAPPING.items():
@@ -537,18 +563,7 @@ class EbayAPI:
             'sku': sku,
             'conditionDescription': row.get(EXCEL_COL_MAPPING['conditionDescription']),
         }
-        quantity = row.get(EXCEL_COL_MAPPING['availability.shipToLocationAvailability.quantity'])
-        if quantity:
-            try:
-                quantity = int(quantity)
-                availability = {
-                    'shipToLocationAvailability': {
-                        'quantity': quantity
-                    }
-                }
-                payload['availability'] = availability
-            except:
-                pass
+
         condition_enum = self._get_condition_enum(row.get(EXCEL_COL_MAPPING['condition']))
         if condition_enum:
             payload['condition'] = condition_enum
@@ -560,18 +575,175 @@ class EbayAPI:
         epid = row.get(EXCEL_COL_MAPPING['product.epid'])
         if epid and not pd.isnull(epid):
             product['epid'] = epid
-        '''brand = row.get(EXCEL_COL_MAPPING['product.brand'])
-        if brand:
-            product['brand'] = brand'''
+
         mpn = row.get(EXCEL_COL_MAPPING['product.mpn'])
         if mpn and mpn.lower() != 'does not apply' and not pd.isnull(mpn):
             product['mpn'] = mpn
 
-        '''image_urls = self._generate_images_urls(sku)
+        image_urls = self._generate_images_urls(sku)
         if image_urls:
-            product['imageUrls'] = image_urls'''
+            product['imageUrls'] = image_urls
         product['aspects'] = self._generate_product_aspects(row)
         payload['product'] = product
+
+        logging.debug(pformat(payload))
+        return payload
+
+    def _generate_offer_payload(self, row):
+        sku = row.get(EXCEL_COL_MAPPING['sku'])
+        if not sku:
+            return None
+        current_datetime_utc = datetime.now(timezone.utc)
+        future_datetime_utc = current_datetime_utc + timedelta(days=7)
+        formatted_datetime = future_datetime_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
+        payload = {
+            'sku': sku,
+            'listingStartDate': formatted_datetime,
+        }
+        quantity = row.get(EXCEL_COL_MAPPING['availableQuantity'])
+        if quantity:
+            try:
+                quantity = int(quantity)
+                payload['availableQuantity'] = quantity
+            except:
+                pass
+
+        categoryId = row.get(EXCEL_COL_MAPPING['categoryId'])
+        if categoryId:
+            payload['categoryId'] = categoryId
+
+        format = row.get(EXCEL_COL_MAPPING['format'])
+        if format:
+            payload['format'] = format
+
+        listingDuration = row.get(EXCEL_COL_MAPPING['listingDuration'])
+        if listingDuration:
+            payload['listingDuration'] = listingDuration
+
+        bestOfferEnabled = row.get(EXCEL_COL_MAPPING['listingPolicies.bestOfferTerms.bestOfferEnabled'])
+        if bestOfferEnabled:
+            try:
+                bestOfferEnabled = bool(bestOfferEnabled)
+                payload['listingPolicies'] = {
+                    'bestOfferTerms': {
+                        'bestOfferEnabled': bestOfferEnabled
+                    }
+                }
+            except:
+                pass
+
+        auctionStartPrice = row.get(EXCEL_COL_MAPPING['pricingSummary.auctionStartPrice'])
+        if auctionStartPrice:
+            try:
+                payload['pricingSummary'] = {
+                    'auctionStartPrice': {
+                        'currency': 'GBP',
+                        'value': auctionStartPrice
+                    }
+                }
+            except:
+                pass
+        manufacturer = {}
+        addressLine1 = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.addressLine1'])
+        if addressLine1:
+            manufacturer['addressLine1'] = addressLine1
+
+        addressLine2 = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.addressLine2'])
+        if addressLine2:
+            manufacturer['addressLine2'] = addressLine2
+
+        city = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.city'])
+        if city:
+            manufacturer['city'] = city
+
+        companyName = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.companyName'])
+        if companyName:
+            manufacturer['companyName'] = companyName
+
+        country = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.country'])
+        if country:
+            manufacturer['country'] = country
+
+        email = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.email'])
+        if email:
+            manufacturer['email'] = email
+
+        phone = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.phone'])
+        if phone:
+            manufacturer['phone'] = phone
+
+        postalCode = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.postalCode'])
+        if postalCode:
+            manufacturer['postalCode'] = postalCode
+
+        stateOrProvince = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.stateOrProvince'])
+        if stateOrProvince:
+            manufacturer['stateOrProvince'] = stateOrProvince
+
+        regulatory = {}
+        if manufacturer:
+            regulatory['manufacturer'] = manufacturer
+
+        responsiblePersons = {}
+        addressLine1 = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.addressLine1'])
+        if addressLine1:
+            responsiblePersons['addressLine1'] = addressLine1
+
+        addressLine2 = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.addressLine2'])
+        if addressLine2:
+            responsiblePersons['addressLine2'] = addressLine2
+
+        city = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.city'])
+        if city:
+            responsiblePersons['city'] = city
+
+        companyName = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.companyName'])
+        if companyName:
+            responsiblePersons['companyName'] = companyName
+
+        country = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.country'])
+        if country:
+            responsiblePersons['country'] = country
+
+        email = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.email'])
+        if email:
+            responsiblePersons['email'] = email
+
+        phone = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.phone'])
+        if phone:
+            responsiblePersons['phone'] = phone
+
+        postalCode = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.postalCode'])
+        if postalCode:
+            responsiblePersons['postalCode'] = postalCode
+
+        stateOrProvince = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.stateOrProvince'])
+        if stateOrProvince:
+            responsiblePersons['stateOrProvince'] = stateOrProvince
+
+        types = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.types'])
+        if types:
+            responsiblePersons['types'] = [types]
+
+        if responsiblePersons:
+            regulatory['responsiblePersons'] = [responsiblePersons]
+
+        payload['regulatory'] = regulatory
+
+        storeCategoryNames = row.get(EXCEL_COL_MAPPING['storeCategoryNames'])
+        if storeCategoryNames:
+            payload['storeCategoryNames'] = [storeCategoryNames]
+
+        vatPercentage = row.get(EXCEL_COL_MAPPING['tax.vatPercentage'])
+        if vatPercentage:
+            try:
+                vatPercentage = int(vatPercentage)
+                payload['tax'] = {
+                    'vatPercentage': vatPercentage,
+                    'applyTax': True
+                }
+            except:
+                pass
 
         logging.debug(pformat(payload))
         return payload
@@ -582,20 +754,26 @@ class EbayAPI:
         self._generate_product_aspects_column_list()
 
         inventory_items = []
+        offer_payloads = []
 
         # iterate over dataframe
         for index, row in self.df.iterrows():
             try:
                 # print(row)
                 payload = self._generate_inventory_payload(row)
-                if not payload:
-                    continue
-                inventory_items.append(payload)
+                if payload:
+                    inventory_items.append(payload)
+                offer_payload = self._generate_offer_payload(row)
+                if offer_payload:
+                    offer_payloads.append(offer_payload)
                 # for each 20 items, send a listing request
                 if (index+1) % 20 == 0:
-                    #self.bulk_create_or_replace_inventory_item(inventory_items)
+                    self.bulk_create_or_replace_inventory_item(inventory_items)
                     # empty the inventory_items
                     inventory_items.clear()
+
+                    self.bulk_create_offer(offer_payloads)
+                    offer_payloads.clear()
 
                 # 2-minute pause after every 145 listings
                 if (index+1) % 145 == 0:
@@ -607,9 +785,12 @@ class EbayAPI:
 
         # if items in inventory_items then list them
         if inventory_items:
-            #self.bulk_create_or_replace_inventory_item(inventory_items)
+            self.bulk_create_or_replace_inventory_item(inventory_items)
             # empty the inventory_items
             inventory_items.clear()
+        if offer_payloads:
+            self.bulk_create_offer(offer_payloads)
+            offer_payloads.clear()
 
     def workflow(self, excel_file):
         self.read_excel(excel_file)
