@@ -353,7 +353,7 @@ class EbayAPI:
         :param filename:
         :return:
         """
-        logging.info("started")
+        logging.info(f"uploading {filename}")
         uri = '/ws/api.dll'
         headers = {
             "SOAPAction": "",
@@ -391,6 +391,7 @@ class EbayAPI:
         :param filename:
         :return:
         """
+        logging.info(f"uploading {filename}")
         token = self.token.get('access_token')
         if self.test:
             domain = 'api.sandbox.ebay.com'
@@ -442,13 +443,12 @@ class EbayAPI:
                 return val
         return None
 
-    def _get_image_full_url(self, sku: str):
+    def _get_image_full_url(self, image_name_path: str):
         """
         Upload image & return full url of image
         :param sku:
         :return:
         """
-        image_name_path = sku + '.jpg'
 
         # upload image
         response = self.upload_image1(image_name_path)
@@ -472,6 +472,36 @@ class EbayAPI:
         else:
             logging.error("FullURL element not found.")
             return None
+
+    @staticmethod
+    def list_images_in_directory(directory_path):
+        # List of image file extensions to filter
+        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.tif', '.webp'}
+
+        # List all files in the given directory
+        files = [f for f in os.listdir(directory_path) if os.path.isfile(os.path.join(directory_path, f))
+                 and os.path.splitext(f)[1].lower() in image_extensions]
+        files.sort()
+
+        files = list(map(lambda f: os.path.join(directory_path, f), files))
+
+        return files
+
+    def _generate_images_urls(self, sku: str):
+        images_urls = []
+        try:
+            images_base_directory = CONFIG[environment]['photo_directory']
+            images_directory = os.path.join(images_base_directory, sku)
+            for image in self.list_images_in_directory(images_directory):
+                try:
+                    image_full_url = self._get_image_full_url(image)
+                    if image_full_url:
+                        images_urls.append(image_full_url)
+                except Exception as e:
+                    logging.exception(e)
+        except Exception as e:
+            logging.exception(e)
+        return images_urls
 
     def _generate_inventory_payload(self, row):
         sku = row.get(EXCEL_COL_MAPPING['sku'])
@@ -512,10 +542,9 @@ class EbayAPI:
         if mpn:
             product['mpn'] = mpn
 
-        image_url = self._get_image_full_url(sku)
-        if image_url:
-            imageUrls = [image_url]
-            product['imageUrls'] = imageUrls
+        image_urls = self._generate_images_urls(sku)
+        if image_urls:
+            product['imageUrls'] = image_urls
 
         payload['product'] = product
 
