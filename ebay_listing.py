@@ -37,7 +37,7 @@ SCOPE = ["https://api.ebay.com/oauth/api_scope",
          "https://api.ebay.com/oauth/api_scope/sell.inventory",
          "https://api.ebay.com/oauth/api_scope/sell.marketing",
          "https://api.ebay.com/oauth/api_scope/sell.account",
-         "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
+         "https://api.ebay.com/oauth/api_scope/sell.fulfillment"
          #"https://api.ebay.com/oauth/api_scope/metadata.insights"
          ]
 Condition_ID_MAPPING = {
@@ -263,6 +263,10 @@ class EbayAPI:
             else:
                 self.token = response.json()
                 logging.info(self.token)
+                return True
+        else:
+            logging.error(response.content)
+        return False
 
     def refresh_token(self):
         """
@@ -277,8 +281,7 @@ class EbayAPI:
             'scope': SCOPE
         }
 
-        self.fetch_access_token(body=payload)
-        if 'refresh_token' in self.token:
+        if self.fetch_access_token(body=payload):
             self.token_saver(self.token)
 
     def fetch_item_aspects(self):
@@ -670,11 +673,17 @@ class EbayAPI:
 
         phone = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.phone'])
         if phone:
-            manufacturer['phone'] = phone
+            try:
+                manufacturer['phone'] = str(int(phone))
+            except:
+                pass
 
         postalCode = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.postalCode'])
         if postalCode:
-            manufacturer['postalCode'] = postalCode
+            try:
+                manufacturer['postalCode'] = str(int(postalCode))
+            except:
+                pass
 
         stateOrProvince = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.stateOrProvince'])
         if stateOrProvince:
@@ -711,11 +720,17 @@ class EbayAPI:
 
         phone = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.phone'])
         if phone:
-            responsiblePersons['phone'] = phone
+            try:
+                responsiblePersons['phone'] = str(int(phone))
+            except:
+                pass
 
         postalCode = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.postalCode'])
         if postalCode:
-            responsiblePersons['postalCode'] = postalCode
+            try:
+                responsiblePersons['postalCode'] = str(int(postalCode))
+            except:
+                pass
 
         stateOrProvince = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.stateOrProvince'])
         if stateOrProvince:
