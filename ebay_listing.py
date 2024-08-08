@@ -91,24 +91,24 @@ EXCEL_COL_MAPPING = {
     '': 'Return profile name',
     '': 'Payment profile name',
     '': 'ProductCompliancePolicyID',
-    'product.brand': 'C:Brand',
-    'product.aspects.Type': 'C:Type',
-    'product.aspects.Size': 'C:Size',
-    'product.aspects.Colour': 'C:Colour',
-    'product.aspects.Style': 'C:Style',
-    'product.aspects.Department': 'C:Department',
-    'product.aspects.Inside Leg': 'C:Inside Leg',
-    'product.aspects.Waist Size': 'C:Waist Size',
-    'product.aspects.Fit': 'C:Fit',
-    'product.aspects.Fabric Type': 'C:Fabric Type',
-    'product.aspects.Features': 'C:Features',
-    'product.aspects.Model': 'C:Model',
-    'product.aspects.Fabric Wash': 'C:Fabric Wash',
-    'product.aspects.Theme': 'C:Theme',
-    'product.aspects.Size Type': 'C:Size Type',
-    'product.aspects.Closure': 'C:Closure',
-    'product.aspects.Material': 'C:Material',
-    'product.aspects.Vintage': 'C:Vintage',
+    #'product.brand': 'C:Brand',
+    #'product.aspects.Type': 'C:Type',
+    #'product.aspects.Size': 'C:Size',
+    #'product.aspects.Colour': 'C:Colour',
+    #'product.aspects.Style': 'C:Style',
+    #'product.aspects.Department': 'C:Department',
+    #'product.aspects.Inside Leg': 'C:Inside Leg',
+    #'product.aspects.Waist Size': 'C:Waist Size',
+    #'product.aspects.Fit': 'C:Fit',
+    #'product.aspects.Fabric Type': 'C:Fabric Type',
+    #'product.aspects.Features': 'C:Features',
+    #'product.aspects.Model': 'C:Model',
+    #'product.aspects.Fabric Wash': 'C:Fabric Wash',
+    #'product.aspects.Theme': 'C:Theme',
+    #'product.aspects.Size Type': 'C:Size Type',
+    #'product.aspects.Closure': 'C:Closure',
+    #'product.aspects.Material': 'C:Material',
+    #'product.aspects.Vintage': 'C:Vintage',
     '': 'Product Safety Pictograms',
     '': 'Product Safety Statements',
     '': 'Product Safety Component',
@@ -131,20 +131,20 @@ EXCEL_COL_MAPPING = {
     '': 'Responsible Person 1 StateOrProvince',
     '': 'Responsible Person 1 Phone',
     '': 'Responsible Person 1 Email',
-    'product.aspects.Product Line': 'C:Product Line',
-    'product.aspects.Accents': 'C:Accents',
-    'product.aspects.Country/Region of Manufacture': 'C:Country/Region of Manufacture',
-    'product.aspects.Rise': 'C:Rise',
-    'product.aspects.Pattern': 'C:Pattern',
-    'product.aspects.Handmade': 'C:Handmade',
-    'product.aspects.Personalise': 'C:Personalise',
-    'product.aspects.Garment Care': 'C:Garment Care',
+    #'product.aspects.Product Line': 'C:Product Line',
+    #'product.aspects.Accents': 'C:Accents',
+    #'product.aspects.Country/Region of Manufacture': 'C:Country/Region of Manufacture',
+    #'product.aspects.Rise': 'C:Rise',
+    #'product.aspects.Pattern': 'C:Pattern',
+    #'product.aspects.Handmade': 'C:Handmade',
+    #'product.aspects.Personalise': 'C:Personalise',
+    #'product.aspects.Garment Care': 'C:Garment Care',
     'product.mpn': 'C:MPN',
-    'product.aspects.Personalisation Instructions': 'C:Personalisation Instructions',
-    'product.aspects.Pocket Type': 'C:Pocket Type',
-    'product.aspects.Season': 'C:Season',
-    'product.aspects.Unit Quantity': 'C:Unit Quantity',
-    'product.aspects.Unit Type': 'C:Unit Type',
+    #'product.aspects.Personalisation Instructions': 'C:Personalisation Instructions',
+    #'product.aspects.Pocket Type': 'C:Pocket Type',
+    #'product.aspects.Season': 'C:Season',
+    #'product.aspects.Unit Quantity': 'C:Unit Quantity',
+    #'product.aspects.Unit Type': 'C:Unit Type',
 }
 
 
@@ -161,6 +161,7 @@ class EbayAPI:
         self.token_client_credentials = None
         self.test = test
         self.state = None
+        self.product_aspects_column_list = []
         if test:
             # sandbox url
             self.base_url = 'https://api.sandbox.ebay.com'
@@ -174,7 +175,7 @@ class EbayAPI:
             self.redirect_uri = ''
             self.token_file = 'ebay_api_token.json'
         self.token_url = self.base_url + '/identity/v1/oauth2/token'
-        self.token_loader()
+        #self.token_loader()
 
     def token_saver(self, token):
         logging.debug("Saving token")
@@ -317,7 +318,7 @@ class EbayAPI:
         logging.info('started')
         self.df = pd.read_excel(excel_filename, sheet_name=sheet, header=3, engine="calamine")
         self.df = self.df.dropna(how='all')
-        print(self.df)
+        #print(self.df)
         logging.info('finished')
 
     def _get_xml_request(self):
@@ -438,7 +439,7 @@ class EbayAPI:
 
     @staticmethod
     def _get_condition_enum(condition_id: str):
-        for key, val in Condition_ID_MAPPING:
+        for key, val in Condition_ID_MAPPING.items():
             if key in condition_id:
                 return val
         return None
@@ -503,6 +504,30 @@ class EbayAPI:
             logging.exception(e)
         return images_urls
 
+    def _generate_product_aspects_column_list(self):
+        logging.debug("generating product.aspects column list")
+        try:
+            # Get list of column names
+            column_names = self.df.columns.tolist()
+            self.product_aspects_column_list = [c for c in column_names if c.startswith('C:')]
+        except Exception as e:
+            logging.exception(e)
+
+    def _generate_product_aspects(self, row):
+        aspects = {}
+        for col in self.product_aspects_column_list:
+            key = col[2:]
+            value = row.get(col)
+            if not value or pd.isnull(value):
+                continue
+            if isinstance(value, str):
+                value = value.split('||')
+                aspects[key] = value
+            else:
+                aspects[key] = [value]
+
+        return aspects
+
     def _generate_inventory_payload(self, row):
         sku = row.get(EXCEL_COL_MAPPING['sku'])
         if not sku:
@@ -533,19 +558,19 @@ class EbayAPI:
         if title:
             product['title'] = title
         epid = row.get(EXCEL_COL_MAPPING['product.epid'])
-        if epid:
+        if epid and not pd.isnull(epid):
             product['epid'] = epid
-        brand = row.get(EXCEL_COL_MAPPING['product.brand'])
+        '''brand = row.get(EXCEL_COL_MAPPING['product.brand'])
         if brand:
-            product['brand'] = brand
+            product['brand'] = brand'''
         mpn = row.get(EXCEL_COL_MAPPING['product.mpn'])
-        if mpn:
+        if mpn and mpn.lower() != 'does not apply' and not pd.isnull(mpn):
             product['mpn'] = mpn
 
-        image_urls = self._generate_images_urls(sku)
+        '''image_urls = self._generate_images_urls(sku)
         if image_urls:
-            product['imageUrls'] = image_urls
-
+            product['imageUrls'] = image_urls'''
+        product['aspects'] = self._generate_product_aspects(row)
         payload['product'] = product
 
         logging.debug(pformat(payload))
@@ -553,6 +578,8 @@ class EbayAPI:
 
     def list_items(self):
         logging.info("Started")
+
+        self._generate_product_aspects_column_list()
 
         inventory_items = []
 
@@ -565,13 +592,13 @@ class EbayAPI:
                     continue
                 inventory_items.append(payload)
                 # for each 20 items, send a listing request
-                if index % 19 == 0:
-                    self.bulk_create_or_replace_inventory_item(inventory_items)
+                if (index+1) % 20 == 0:
+                    #self.bulk_create_or_replace_inventory_item(inventory_items)
                     # empty the inventory_items
                     inventory_items.clear()
 
                 # 2-minute pause after every 145 listings
-                if index % 144 == 0:
+                if (index+1) % 145 == 0:
                     print("Sleeping for 2 min...")
                     logging.info("Sleeping for 2 min...")
                     time.sleep(120)
@@ -580,7 +607,7 @@ class EbayAPI:
 
         # if items in inventory_items then list them
         if inventory_items:
-            self.bulk_create_or_replace_inventory_item(inventory_items)
+            #self.bulk_create_or_replace_inventory_item(inventory_items)
             # empty the inventory_items
             inventory_items.clear()
 
@@ -692,6 +719,7 @@ def main(args):
         dev_id=CONFIG[environment]['dev_id'],
         test=args.test
     )
+    ebay.workflow(CONFIG[environment]['excel_name_with_path'])
 
 
 if __name__ == '__main__':
