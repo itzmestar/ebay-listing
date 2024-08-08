@@ -553,6 +553,10 @@ class EbayAPI:
                 value = value.split('||')
                 aspects[key] = value
             else:
+                try:
+                    value = int(value)
+                except:
+                    pass
                 aspects[key] = [value]
 
         return aspects
