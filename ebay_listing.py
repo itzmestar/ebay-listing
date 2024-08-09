@@ -749,7 +749,7 @@ class EbayAPI:
 
         types = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.types'])
         if types:
-            responsiblePersons['types'] = [types]
+            responsiblePersons['types'] = ['EU_RESPONSIBLE_PERSON']
 
         if responsiblePersons:
             regulatory['responsiblePersons'] = [responsiblePersons]
@@ -787,7 +787,7 @@ class EbayAPI:
             try:
                 # print(row)
                 payload = self._generate_inventory_payload(row)
-                payload = None
+                # payload = None
                 if payload:
                     inventory_items.append(payload)
                 offer_payload = self._generate_offer_payload(row)
