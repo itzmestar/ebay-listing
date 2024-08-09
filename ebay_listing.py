@@ -15,7 +15,7 @@ from pprint import pformat
 import argparse
 import configparser
 
-__version__ = "v2.0.1"
+__version__ = "v2.2.0"
 
 pandas_monkeypatch()
 
@@ -467,6 +467,28 @@ class EbayAPI:
         except Exception as e:
             logging.exception(e)
 
+    def create_offer(self, payload: dict):
+        """
+        https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/createOffer
+        :param payload:
+        :return:
+        """
+        logging.info("started")
+        uri = '/sell/inventory/v1/offer'
+
+        token = self.token.get('access_token')
+        headers = {
+            'Content-Language': 'en-US',
+            'Content-Type': 'application/json',
+            'Authorization': f'IAF {token}'
+        }
+
+        try:
+            response = requests.post(self.base_url + uri, headers=headers, json=payload)
+            logging.debug(response.json())
+        except Exception as e:
+            logging.exception(e)
+
     @staticmethod
     def _get_condition_enum(condition_id: str):
         for key, val in Condition_ID_MAPPING.items():
@@ -600,6 +622,7 @@ class EbayAPI:
     def _generate_offer_payload(self, row):
         sku = row.get(EXCEL_COL_MAPPING['sku'])
         if not sku:
+            logging.error("SKU not found")
             return None
         current_datetime_utc = datetime.now(timezone.utc)
         future_datetime_utc = current_datetime_utc + timedelta(days=7)
@@ -638,7 +661,7 @@ class EbayAPI:
         if listingDuration:
             payload['listingDuration'] = listingDuration
 
-        bestOfferEnabled = row.get(EXCEL_COL_MAPPING['listingPolicies.bestOfferTerms.bestOfferEnabled'])
+        '''bestOfferEnabled = row.get(EXCEL_COL_MAPPING['listingPolicies.bestOfferTerms.bestOfferEnabled'])
         if bestOfferEnabled:
             try:
                 bestOfferEnabled = bool(bestOfferEnabled)
@@ -648,9 +671,9 @@ class EbayAPI:
                     }
                 }
             except:
-                pass
+                pass'''
 
-        auctionStartPrice = row.get(EXCEL_COL_MAPPING['pricingSummary.auctionStartPrice'])
+        '''auctionStartPrice = row.get(EXCEL_COL_MAPPING['pricingSummary.auctionStartPrice'])
         if auctionStartPrice:
             try:
                 payload['pricingSummary'] = {
@@ -660,17 +683,17 @@ class EbayAPI:
                     }
                 }
             except:
-                pass
-        manufacturer = {}
+                pass'''
+        '''manufacturer = {}
         addressLine1 = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.addressLine1'])
         if addressLine1:
             manufacturer['addressLine1'] = addressLine1
 
         addressLine2 = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.addressLine2'])
         if addressLine2:
-            manufacturer['addressLine2'] = addressLine2
+            manufacturer['addressLine2'] = addressLine2'''
 
-        city = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.city'])
+        '''city = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.city'])
         if city:
             manufacturer['city'] = city
 
@@ -680,9 +703,9 @@ class EbayAPI:
 
         country = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.country'])
         if country:
-            manufacturer['country'] = country
+            manufacturer['country'] = country'''
 
-        email = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.email'])
+        '''email = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.email'])
         if email:
             manufacturer['email'] = email
 
@@ -691,9 +714,9 @@ class EbayAPI:
             try:
                 manufacturer['phone'] = str(int(phone))
             except:
-                pass
+                pass'''
 
-        postalCode = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.postalCode'])
+        '''postalCode = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.postalCode'])
         if postalCode:
             try:
                 manufacturer['postalCode'] = str(int(postalCode))
@@ -706,18 +729,18 @@ class EbayAPI:
 
         regulatory = {}
         if manufacturer:
-            regulatory['manufacturer'] = manufacturer
+            regulatory['manufacturer'] = manufacturer'''
 
-        responsiblePersons = {}
+        '''responsiblePersons = {}
         addressLine1 = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.addressLine1'])
         if addressLine1:
             responsiblePersons['addressLine1'] = addressLine1
 
         addressLine2 = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.addressLine2'])
         if addressLine2:
-            responsiblePersons['addressLine2'] = addressLine2
+            responsiblePersons['addressLine2'] = addressLine2'''
 
-        city = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.city'])
+        '''city = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.city'])
         if city:
             responsiblePersons['city'] = city
 
@@ -731,9 +754,9 @@ class EbayAPI:
 
         email = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.email'])
         if email:
-            responsiblePersons['email'] = email
+            responsiblePersons['email'] = email'''
 
-        phone = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.phone'])
+        '''phone = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.phone'])
         if phone:
             try:
                 responsiblePersons['phone'] = str(int(phone))
@@ -745,9 +768,9 @@ class EbayAPI:
             try:
                 responsiblePersons['postalCode'] = str(int(postalCode))
             except:
-                pass
+                pass'''
 
-        stateOrProvince = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.stateOrProvince'])
+        '''stateOrProvince = row.get(EXCEL_COL_MAPPING['regulatory.responsiblePersons.stateOrProvince'])
         if stateOrProvince:
             responsiblePersons['stateOrProvince'] = stateOrProvince
 
@@ -756,13 +779,14 @@ class EbayAPI:
             responsiblePersons['types'] = ['EU_RESPONSIBLE_PERSON']
 
         if responsiblePersons:
-            regulatory['responsiblePersons'] = [responsiblePersons]
+            regulatory['responsiblePersons'] = [responsiblePersons]'''
 
-        payload['regulatory'] = regulatory
+        # Do not include
+        #payload['regulatory'] = regulatory
 
-        storeCategoryNames = row.get(EXCEL_COL_MAPPING['storeCategoryNames'])
+        '''storeCategoryNames = row.get(EXCEL_COL_MAPPING['storeCategoryNames'])
         if storeCategoryNames:
-            payload['storeCategoryNames'] = [storeCategoryNames]
+            payload['storeCategoryNames'] = [storeCategoryNames]'''
 
         vatPercentage = row.get(EXCEL_COL_MAPPING['tax.vatPercentage'])
         if vatPercentage:
@@ -802,6 +826,7 @@ class EbayAPI:
                     self.bulk_create_or_replace_inventory_item(inventory_items)
                     # empty the inventory_items
                     inventory_items.clear()
+                    time.sleep(2)
 
                     self.bulk_create_offer(offer_payloads)
                     offer_payloads.clear()
@@ -820,6 +845,7 @@ class EbayAPI:
             # empty the inventory_items
             inventory_items.clear()
         if offer_payloads:
+            time.sleep(2)
             self.bulk_create_offer(offer_payloads)
             offer_payloads.clear()
 
