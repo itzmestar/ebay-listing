@@ -15,6 +15,7 @@ from pprint import pformat
 import argparse
 import configparser
 
+__version__ = "v2.0.0"
 
 pandas_monkeypatch()
 
@@ -840,11 +841,11 @@ def main(args):
     CONFIG = load_config(config_file)
 
     if args.test:
-        logging.info("Running in sandbox environment...")
+        logging.info(f"Running in sandbox environment: {__version__}")
         environment = 'sandbox'
 
     else:
-        logging.info("Running in production environment...")
+        logging.info(f"Running in production environment: {__version__}")
         environment = 'production'
 
     ebay = EbayAPI(
