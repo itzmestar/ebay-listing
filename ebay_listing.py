@@ -15,7 +15,7 @@ from pprint import pformat
 import argparse
 import configparser
 
-__version__ = "v2.0.0"
+__version__ = "v2.0.1"
 
 pandas_monkeypatch()
 
@@ -606,6 +606,7 @@ class EbayAPI:
         formatted_datetime = future_datetime_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
         payload = {
             'sku': sku,
+            'marketplaceId': 'EBAY_GB',
             'listingStartDate': formatted_datetime,
         }
         quantity = row.get(EXCEL_COL_MAPPING['availableQuantity'])
@@ -630,6 +631,8 @@ class EbayAPI:
                 payload['format'] = 'FIXED_PRICE'
             else:
                 payload['format'] = 'AUCTION'
+        else:
+            payload['format'] = 'FIXED_PRICE'
 
         listingDuration = row.get(EXCEL_COL_MAPPING['listingDuration'])
         if listingDuration:
