@@ -15,7 +15,7 @@ from pprint import pformat
 import argparse
 import configparser
 
-__version__ = "v2.2.0"
+__version__ = "v2.3.0"
 
 pandas_monkeypatch()
 
@@ -90,8 +90,8 @@ EXCEL_COL_MAPPING = {
     '': 'Refund option',
     '': 'Return shipping cost paid by',
     '': 'Shipping profile name',
-    '': 'Return profile name',
-    '': 'Payment profile name',
+    'listingPolicies.returnPolicyId': 'Return profile name',
+    'listingPolicies.paymentPolicyId': 'Payment profile name',
     '': 'ProductCompliancePolicyID',
     #'product.brand': 'C:Brand',
     #'product.aspects.Type': 'C:Type',
@@ -164,6 +164,9 @@ class EbayAPI:
         self.test = test
         self.state = None
         self.product_aspects_column_list = []
+        self.merchant_location_key = None
+        self.fulfillment_policy = None
+        self.sku_offer_id_dict = {}
         if test:
             # sandbox url
             self.base_url = 'https://api.sandbox.ebay.com'
@@ -442,6 +445,35 @@ class EbayAPI:
         except Exception as e:
             logging.exception(e)
 
+    def create_offers(self, offer_items: list):
+        """
+        https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/createOffer
+        :param offer_items:
+        :return:
+        """
+        logging.info("started")
+        uri = '/sell/inventory/v1/offer'
+
+        token = self.token.get('access_token')
+        headers = {
+            'Content-Language': 'en-US',
+            'Content-Type': 'application/json',
+            'Authorization': f'IAF {token}'
+        }
+
+        for payload in offer_items:
+            try:
+                sku = payload.get('sku')
+                response = requests.post(self.base_url + uri, headers=headers, json=payload)
+                logging.debug(response.json())
+                if response.ok:
+                    data = response.json()
+                    self.sku_offer_id_dict[sku] = data.get("offerId")
+                else:
+                    self.sku_offer_id_dict[sku] = None
+            except Exception as e:
+                logging.exception(e)
+
     def bulk_create_offer(self, offer_items: list):
         """
         https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/bulkCreateOffer
@@ -467,14 +499,14 @@ class EbayAPI:
         except Exception as e:
             logging.exception(e)
 
-    def create_offer(self, payload: dict):
+    def publish_offer(self, offer_id: str):
         """
-        https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/createOffer
-        :param payload:
+        https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/publishOffer
+        :param offer_id:
         :return:
         """
         logging.info("started")
-        uri = '/sell/inventory/v1/offer'
+        uri = f'/sell/inventory/v1/offer/{offer_id}/publish'
 
         token = self.token.get('access_token')
         headers = {
@@ -484,10 +516,81 @@ class EbayAPI:
         }
 
         try:
-            response = requests.post(self.base_url + uri, headers=headers, json=payload)
+            response = requests.post(self.base_url + uri, headers=headers)
             logging.debug(response.json())
         except Exception as e:
             logging.exception(e)
+
+    def publish_offers(self):
+        for key, val in self.sku_offer_id_dict.items():
+            if val:
+                logging.info(f"Publishing offerId: {val} for sku: {key}")
+                self.publish_offer(val)
+            else:
+                logging.warning(f"No offerId found for sku: {key}")
+
+        self.sku_offer_id_dict.clear()
+
+    def fetch_inventory_location(self):
+        """
+        https://developer.ebay.com/api-docs/sell/inventory/resources/location/methods/getInventoryLocations
+        :return:
+        """
+        logging.info("started")
+        uri = '/sell/inventory/v1/location'
+
+        token = self.token.get('access_token')
+        headers = {
+            'Content-Language': 'en-US',
+            'Content-Type': 'application/json',
+            'Authorization': f'IAF {token}'
+        }
+
+        try:
+            response = requests.get(self.base_url + uri, headers=headers)
+            logging.debug(response.json())
+            data = response.json()
+            if data.get('total', 0) == 0:
+                logging.error("No inventory location found")
+                return None
+            if data.get("locations", [])[0].get('merchantLocationKey'):
+                self.merchant_location_key = data.get("locations", [])[0].get('merchantLocationKey')
+                logging.info(f"Merchant Location found: {self.merchant_location_key}")
+        except Exception as e:
+            logging.exception(e)
+            logging.error("No inventory location found")
+            return None
+
+    def fetch_fulfillment_policy(self):
+        """
+        https://developer.ebay.com/api-docs/sell/account/resources/fulfillment_policy/methods/getFulfillmentPolicies
+
+        :return:
+        """
+        logging.info("started")
+        uri = '/sell/account/v1/fulfillment_policy?marketplace_id='
+
+        token = self.token.get('access_token')
+        headers = {
+            'Content-Language': 'en-US',
+            'Content-Type': 'application/json',
+            'Authorization': f'IAF {token}'
+        }
+
+        try:
+            response = requests.get(self.base_url + uri, headers=headers)
+            logging.debug(response.json())
+            data = response.json()
+            if data.get('total', 0) == 0:
+                logging.error("No Fulfillment Policy found")
+                return None
+            if data.get("fulfillmentPolicies", [])[0].get('fulfillmentPolicyId'):
+                self.fulfillment_policy = data.get("fulfillmentPolicies", [])[0].get('fulfillmentPolicyId')
+                logging.info(f"Fulfillment Policy found: {self.fulfillment_policy}")
+        except Exception as e:
+            logging.exception(e)
+            logging.error("No Fulfillment Policy found")
+            return None
 
     @staticmethod
     def _get_condition_enum(condition_id: str):
@@ -631,6 +734,7 @@ class EbayAPI:
             'sku': sku,
             'marketplaceId': 'EBAY_GB',
             'listingStartDate': formatted_datetime,
+            'merchantLocationKey': self.merchant_location_key
         }
         quantity = row.get(EXCEL_COL_MAPPING['availableQuantity'])
         if quantity:
@@ -673,17 +777,30 @@ class EbayAPI:
             except:
                 pass'''
 
-        '''auctionStartPrice = row.get(EXCEL_COL_MAPPING['pricingSummary.auctionStartPrice'])
-        if auctionStartPrice:
+        price = row.get(EXCEL_COL_MAPPING['pricingSummary.auctionStartPrice'])
+        if price:
             try:
                 payload['pricingSummary'] = {
-                    'auctionStartPrice': {
+                    'price': {
                         'currency': 'GBP',
-                        'value': str(auctionStartPrice)
+                        'value': str(price)
                     }
                 }
             except:
-                pass'''
+                pass
+        listingPolicies = {'fulfillmentPolicyId': self.fulfillment_policy}
+
+        paymentPolicyId = row.get(EXCEL_COL_MAPPING['listingPolicies.paymentPolicyId'])
+        if paymentPolicyId:
+            paymentPolicyId = paymentPolicyId.split(' ')[-1]
+            listingPolicies['paymentPolicyId'] = paymentPolicyId
+
+        returnPolicyId = row.get(EXCEL_COL_MAPPING['listingPolicies.returnPolicyId'])
+        if returnPolicyId:
+            returnPolicyId = returnPolicyId.split(' ')[-1]
+            listingPolicies['returnPolicyId'] = returnPolicyId
+        payload['listingPolicies'] = listingPolicies
+
         '''manufacturer = {}
         addressLine1 = row.get(EXCEL_COL_MAPPING['regulatory.manufacturer.addressLine1'])
         if addressLine1:
@@ -806,6 +923,7 @@ class EbayAPI:
         logging.info("Started")
 
         self._generate_product_aspects_column_list()
+        self.fetch_inventory_location()
 
         inventory_items = []
         offer_payloads = []
@@ -828,8 +946,11 @@ class EbayAPI:
                     inventory_items.clear()
                     time.sleep(2)
 
-                    self.bulk_create_offer(offer_payloads)
+                    self.create_offers(offer_payloads)
                     offer_payloads.clear()
+
+                    time.sleep(2)
+                    self.publish_offers()
 
                 # 2-minute pause after every 145 listings
                 if (index+1) % 145 == 0:
@@ -846,8 +967,10 @@ class EbayAPI:
             inventory_items.clear()
         if offer_payloads:
             time.sleep(2)
-            self.bulk_create_offer(offer_payloads)
+            self.create_offers(offer_payloads)
             offer_payloads.clear()
+            time.sleep(2)
+            self.publish_offers()
 
     def workflow(self, excel_file):
         self.read_excel(excel_file)
