@@ -15,7 +15,7 @@ from pprint import pformat
 import argparse
 import configparser
 
-__version__ = "v2.3.0"
+__version__ = "v2.5.0"
 
 pandas_monkeypatch()
 
@@ -93,7 +93,7 @@ EXCEL_COL_MAPPING = {
     'listingPolicies.returnPolicyId': 'Return profile name',
     'listingPolicies.paymentPolicyId': 'Payment profile name',
     '': 'ProductCompliancePolicyID',
-    #'product.brand': 'C:Brand',
+    'product.brand': 'C:Brand',
     #'product.aspects.Type': 'C:Type',
     #'product.aspects.Size': 'C:Size',
     #'product.aspects.Colour': 'C:Colour',
@@ -166,6 +166,9 @@ class EbayAPI:
         self.product_aspects_column_list = []
         self.merchant_location_key = None
         self.fulfillment_policy = None
+        self.payment_policy = None
+        self.return_policy = None
+
         self.sku_offer_id_dict = {}
         if test:
             # sandbox url
@@ -196,7 +199,7 @@ class EbayAPI:
         with open(self.token_file, 'r') as f:
             self.token = json.load(f)
 
-        self.refresh_token()
+        #self.refresh_token()
 
     def authorize(self):
         AUTHORIZATION_BASE_URL = self.base_auth_url + '/oauth2/authorize'
@@ -531,6 +534,101 @@ class EbayAPI:
 
         self.sku_offer_id_dict.clear()
 
+    def get_offers(self, sku):
+        """
+        https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/getOffers
+        :param sku:
+        :return:
+        """
+        logging.info("started")
+        uri = f'/sell/inventory/v1/offer?sku={sku}'
+
+        token = self.token.get('access_token')
+        headers = {
+            'Content-Language': 'en-US',
+            'Content-Type': 'application/json',
+            'Authorization': f'IAF {token}'
+        }
+
+        try:
+            response = requests.get(self.base_url + uri, headers=headers)
+            if response.ok:
+                print(response.json())
+        except Exception as e:
+            logging.exception(e)
+
+    def delete_offer(self, offer_id: str):
+        """
+        https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/deleteOffer
+        :param offer_id:
+        :return:
+        """
+        logging.info("started")
+        uri = f'/sell/inventory/v1/offer/{offer_id}'
+
+        token = self.token.get('access_token')
+        headers = {
+            'Content-Language': 'en-US',
+            'Content-Type': 'application/json',
+            'Authorization': f'IAF {token}'
+        }
+
+        try:
+            response = requests.delete(self.base_url + uri, headers=headers)
+            if response.ok:
+                logging.debug(f"{offer_id} deleted successfully.")
+        except Exception as e:
+            logging.exception(e)
+
+    def create_inventory_location(self):
+        """
+        https://developer.ebay.com/api-docs/sell/inventory/resources/location/methods/createInventoryLocation
+        :return:
+        """
+        logging.info("started")
+        merchant_location_key = 'Klaipeda'
+        uri = f'/sell/inventory/v1/location/{merchant_location_key}'
+
+        token = self.token.get('access_token')
+        headers = {
+            'Content-Language': 'en-US',
+            'Content-Type': 'application/json',
+            'Authorization': f'IAF {token}'
+        }
+
+        payload = {
+            'name': 'Klaipeda',
+            'phone': '+37066504325',
+            'location': {
+                'address': {
+                    "addressLine1": "Gedminų g. 2-121",
+                    "addressLine2": "addressLine2",
+                    'country': 'LT',
+                    'city': 'Klaipėdos m.',
+                    'stateOrProvince': 'Klaipėdos m. sav.',
+                    'postalCode': '94167',
+                }
+            },
+            "merchantLocationStatus": "ENABLED",
+            "locationTypes": [
+                "WAREHOUSE"
+            ],
+            "locationAdditionalInformation": "Warehouse location",
+            'additionalInfo': "Warehouse location",
+        }
+
+        try:
+            response = requests.post(self.base_url + uri, headers=headers, json=payload)
+            if response.ok:
+                logging.info(f"Inventory location: {merchant_location_key} created")
+                self.merchant_location_key = merchant_location_key
+            else:
+                logging.error(f"Inventory location not created: {response.json()}")
+        except Exception as e:
+            logging.exception(e)
+            logging.error("Inventory location not created.")
+            return None
+
     def fetch_inventory_location(self):
         """
         https://developer.ebay.com/api-docs/sell/inventory/resources/location/methods/getInventoryLocations
@@ -552,6 +650,7 @@ class EbayAPI:
             data = response.json()
             if data.get('total', 0) == 0:
                 logging.error("No inventory location found")
+                self.create_inventory_location()
                 return None
             if data.get("locations", [])[0].get('merchantLocationKey'):
                 self.merchant_location_key = data.get("locations", [])[0].get('merchantLocationKey')
@@ -559,6 +658,47 @@ class EbayAPI:
         except Exception as e:
             logging.exception(e)
             logging.error("No inventory location found")
+            self.create_inventory_location()
+            return None
+
+    def create_fulfillment_policy(self):
+        """
+        https://developer.ebay.com/api-docs/sell/account/resources/fulfillment_policy/methods/createFulfillmentPolicy
+
+        :return:
+        """
+        logging.info("started")
+        uri = '/sell/account/v1/fulfillment_policy'
+
+        token = self.token.get('access_token')
+        headers = {
+            'Content-Language': 'en-US',
+            'Content-Type': 'application/json',
+            'Authorization': f'IAF {token}'
+        }
+
+        payload = {
+            'categoryTypes': [
+                {
+                    'name': 'ALL_EXCLUDING_MOTORS_VEHICLES'
+                }
+            ],
+            'name': 'fulfillment_policy_1',
+            'marketplaceId': 'EBAY_GB'
+        }
+
+        try:
+            response = requests.post(self.base_url + uri, headers=headers, json=payload)
+            if response.ok:
+                logging.debug(response.json())
+                data = response.json()
+
+                if data.get('fulfillmentPolicyId'):
+                    self.fulfillment_policy = data.get('fulfillmentPolicyId')
+                    logging.info(f"Fulfillment Policy created: {self.fulfillment_policy}")
+        except Exception as e:
+            logging.exception(e)
+            logging.error("Fulfillment Policy not created")
             return None
 
     def fetch_fulfillment_policy(self):
@@ -568,7 +708,7 @@ class EbayAPI:
         :return:
         """
         logging.info("started")
-        uri = '/sell/account/v1/fulfillment_policy?marketplace_id='
+        uri = '/sell/account/v1/fulfillment_policy?marketplace_id=EBAY_GB'
 
         token = self.token.get('access_token')
         headers = {
@@ -583,6 +723,7 @@ class EbayAPI:
             data = response.json()
             if data.get('total', 0) == 0:
                 logging.error("No Fulfillment Policy found")
+                self.create_fulfillment_policy()
                 return None
             if data.get("fulfillmentPolicies", [])[0].get('fulfillmentPolicyId'):
                 self.fulfillment_policy = data.get("fulfillmentPolicies", [])[0].get('fulfillmentPolicyId')
@@ -590,6 +731,71 @@ class EbayAPI:
         except Exception as e:
             logging.exception(e)
             logging.error("No Fulfillment Policy found")
+            self.create_fulfillment_policy()
+            return None
+
+    def fetch_payment_policy(self):
+        """
+        https://developer.ebay.com/api-docs/sell/account/resources/payment_policy/methods/getPaymentPolicies
+        :return:
+        """
+        logging.info("started")
+        uri = '/sell/account/v1/payment_policy?marketplace_id=EBAY_GB'
+
+        token = self.token.get('access_token')
+        headers = {
+            'Content-Language': 'en-US',
+            'Content-Type': 'application/json',
+            'Authorization': f'IAF {token}'
+        }
+
+        try:
+            response = requests.get(self.base_url + uri, headers=headers)
+            logging.debug(response.json())
+            data = response.json()
+            if data.get('total', 0) == 0:
+                logging.error("No Payment Policy found")
+                # self.create_fulfillment_policy()
+                return None
+            if data.get("paymentPolicies", [])[0].get('paymentPolicyId'):
+                self.payment_policy = data.get("paymentPolicies", [])[0].get('paymentPolicyId')
+                logging.info(f"Payment Policy found: {self.payment_policy}")
+        except Exception as e:
+            logging.exception(e)
+            logging.error("No Payment Policy found")
+            #self.create_fulfillment_policy()
+            return None
+
+    def fetch_return_policy(self):
+        """
+        https://developer.ebay.com/api-docs/sell/account/resources/return_policy/methods/getReturnPolicies
+        :return:
+        """
+        logging.info("started")
+        uri = '/sell/account/v1/return_policy?marketplace_id=EBAY_GB'
+
+        token = self.token.get('access_token')
+        headers = {
+            'Content-Language': 'en-US',
+            'Content-Type': 'application/json',
+            'Authorization': f'IAF {token}'
+        }
+
+        try:
+            response = requests.get(self.base_url + uri, headers=headers)
+            logging.debug(response.json())
+            data = response.json()
+            if data.get('total', 0) == 0:
+                logging.error("No Return Policy found")
+                # self.create_fulfillment_policy()
+                return None
+            if data.get("returnPolicies", [])[0].get('returnPolicyId'):
+                self.return_policy = data.get("returnPolicies", [])[0].get('returnPolicyId')
+                logging.info(f"Return Policy found: {self.payment_policy}")
+        except Exception as e:
+            logging.exception(e)
+            logging.error("No Return Policy found")
+            # self.create_fulfillment_policy()
             return None
 
     @staticmethod
@@ -717,7 +923,26 @@ class EbayAPI:
         if image_urls:
             product['imageUrls'] = image_urls
         product['aspects'] = self._generate_product_aspects(row)
+        product['description'] = row.get(EXCEL_COL_MAPPING['conditionDescription'])
+        product['brand'] = row.get(EXCEL_COL_MAPPING['product.brand'])
         payload['product'] = product
+
+        quantity = row.get(EXCEL_COL_MAPPING['availableQuantity'])
+        if quantity:
+            try:
+                quantity = int(quantity)
+                payload['availableQuantity'] = quantity
+            except:
+                pass
+        else:
+            quantity = 1
+
+        availability = {
+            'shipToLocationAvailability': {
+                'quantity': quantity
+            }
+        }
+        payload['availability'] = availability
 
         logging.debug(pformat(payload))
         return payload
@@ -788,9 +1013,13 @@ class EbayAPI:
                 }
             except:
                 pass
-        listingPolicies = {'fulfillmentPolicyId': self.fulfillment_policy}
+        listingPolicies = {
+            'fulfillmentPolicyId': self.fulfillment_policy,
+            'paymentPolicyId': self.payment_policy,
+            'returnPolicyId': self.return_policy
+        }
 
-        paymentPolicyId = row.get(EXCEL_COL_MAPPING['listingPolicies.paymentPolicyId'])
+        '''paymentPolicyId = row.get(EXCEL_COL_MAPPING['listingPolicies.paymentPolicyId'])
         if paymentPolicyId:
             paymentPolicyId = paymentPolicyId.split(' ')[-1]
             listingPolicies['paymentPolicyId'] = paymentPolicyId
@@ -798,7 +1027,7 @@ class EbayAPI:
         returnPolicyId = row.get(EXCEL_COL_MAPPING['listingPolicies.returnPolicyId'])
         if returnPolicyId:
             returnPolicyId = returnPolicyId.split(' ')[-1]
-            listingPolicies['returnPolicyId'] = returnPolicyId
+            listingPolicies['returnPolicyId'] = returnPolicyId'''
         payload['listingPolicies'] = listingPolicies
 
         '''manufacturer = {}
@@ -924,6 +1153,9 @@ class EbayAPI:
 
         self._generate_product_aspects_column_list()
         self.fetch_inventory_location()
+        self.fetch_fulfillment_policy()
+        self.fetch_payment_policy()
+        self.fetch_return_policy()
 
         inventory_items = []
         offer_payloads = []
